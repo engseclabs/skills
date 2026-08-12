@@ -59,36 +59,9 @@ patterns, tailored to this user's conventions (plain `git` + `gh`, design docs i
   distinction is the renderer: GitHub comment/issue/PR fields reflow, a file
   viewed as raw text does not. When you build a body with a heredoc, do **not**
   wrap it to terminal width; let each paragraph run long.
-- **Follow the writing-style rules below** for every issue, comment, PR
-  description, and design doc.
-
-## Writing style (issues, PRs, comments, design docs)
-
-Apply these rules to all prose you write for the reader. They govern content and
-tone; the two principles above govern structure and Markdown line breaks.
-
-- Use an inverted-pyramid structure. Lead with the main conclusion, outcome, or
-  recommendation, then supporting information in descending order of importance.
-- Optimize for information density. Every sentence should have a purpose. Stop
-  when the useful information is complete.
-- Use plain, direct language, active voice, and concrete verbs. Prefer precise
-  verbs to adverb-modified weak verbs.
-- Assume a technically literate reader.
-- Be concise without becoming cryptic. Use short paragraphs and vary sentence
-  length naturally.
-- Use semantic Markdown: heading levels for hierarchy, lists for actual sets or
-  sequences, tables for comparisons or mappings, blockquotes for quotations, code
-  formatting for identifiers and examples.
-- Use inline links to internal and external references with concise, descriptive
-  link text. Link to source material instead of duplicating it, while retaining
-  enough context to understand the point.
-- Never use em dashes. Use periods, commas, parentheses, or colons. Hyphens in
-  compound words are fine.
-- Never use plus signs or ampersands for "and" in prose; write "and". (Code
-  identifiers and literal command syntax keep their real characters.)
-- Avoid stock AI prose: canned openings, filler transitions, rhetorical
-  questions, fake contrasts such as "not X, but Y," and inflated words such as
-  "delve," "pivotal," "transformative," "seamless," or "revolutionary."
+- **Follow the `ai-writing-improver` skill's style rules** for every issue,
+  comment, PR description, and design doc — it governs content and tone; the
+  two principles above govern structure and Markdown line breaks.
 
 ---
 
