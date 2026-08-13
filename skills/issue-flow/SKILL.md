@@ -16,8 +16,9 @@ description: >-
 A lightweight, GitHub-native workflow: **vet → issue → (design doc PR) → stacked PRs → keep the issue updated.**
 
 Adapted from the `obra/superpowers` brainstorming pattern and issue-lifecycle
-patterns, tailored to this user's conventions (plain `git` + `gh`, design docs in
-`docs/design/`, issue as the single source of truth).
+patterns, tailored to this user's conventions (plain `git` + `gh`, `gh stack`
+for stacked PRs, design docs in `docs/design/`, issue as the single source of
+truth).
 
 ## Guiding principles
 
@@ -37,7 +38,10 @@ patterns, tailored to this user's conventions (plain `git` + `gh`, design docs i
 - **Cheapest review first.** Review the *approach* (design doc PR) before any
   implementation exists. Review each implementation slice independently (stacked PRs).
 - **Stack only when work genuinely depends on prior work.** Independent slices get
-  independent PRs off `main`. Stacking has real rebase cost — earn it.
+  independent PRs off `main`. Use [`gh stack`](https://github.com/github/gh-stack)
+  for anything stacked — it automates branch creation, rebasing, and PR
+  base-chaining, so stacking no longer carries the manual rebase/retarget risk
+  it used to.
 - **Write issue/PR/doc bodies newspaper-style, for the reader.** Lead with a big
   top-down summary — the *what* and *why* in the first paragraph — then details in
   descending order of importance, so a reviewer who stops after the lede still has
@@ -176,8 +180,11 @@ The `doc-coauthoring` skill is a good companion for drafting the doc itself.
 
 **Decide: stack or independent?**
 - Slices are *independent* (touch different areas, no ordering) → separate branches
-  off `main`, separate PRs. Simpler; no restacking.
-- Slice B genuinely builds on unmerged slice A → **stack** B on A.
+  off `main`, separate PRs. Simpler; nothing to keep in sync.
+- Slice B genuinely builds on unmerged slice A → **stack** B on A, using
+  [GitHub stacked pull requests](https://github.blog/changelog/2026-07-30-stacked-pull-requests-are-now-in-public-preview/)
+  and the [`gh stack`](https://github.com/github/gh-stack) CLI extension. Install
+  once with `gh extension install github/gh-stack`.
 
 ### Independent PR (default)
 ```bash
@@ -188,50 +195,37 @@ gh pr create --base main --title "<slice>" --body "Part of #N."
 ```
 
 ### Stacked PR
-Base each branch on the previous branch, and target the PR at the parent branch —
-**not** `main` — so the diff shows only that slice:
+`gh stack` owns branch creation, base-branch chaining, and rebasing — it
+replaces manually creating branches off each other and retargeting PRs by hand.
 
 ```bash
-git switch -c feat/slice-a main        # slice A off main
-# ...commit, push...
-gh pr create --base main --title "Slice A" --body "Part of #N."
-
-git switch -c feat/slice-b feat/slice-a  # slice B off slice A
-# ...commit, push...
-gh pr create --base feat/slice-b --title "Slice B" --body "Part of #N. Stacked on Slice A."
+gh stack init feat/slice-a           # first layer, based on main
+# ...commit slice A...
+gh stack add feat/slice-b            # next layer, based on slice A
+# ...commit slice B...
+gh stack submit                      # push branches, open one PR per layer, link them as a Stack
 ```
 
-> [!WARNING]
-> **The #1 way stacked PRs lose commits: merging the child while its base is still the parent branch.**
-> When A merges, GitHub does **not** reliably auto-retarget B to `main` — the auto-retarget only fires if A's branch is *deleted* on merge, and even then it's unreliable after a squash/rebase merge. If B still has `base = feat/slice-a` when you click merge, **B merges into `feat/slice-a` (a now-dead branch), not `main` — and its commits never reach `main`.** They look "merged" (PR shows purple/MERGED) but are absent from `main`. This exact failure cost us a re-do (see the recovery recipe below).
+Each PR's base is set automatically to the branch below it, so reviewers see
+only that layer's diff; a **stack map** on each PR shows how it fits into the
+whole change. `gh stack view` shows the current stack and its PR links.
 
-**Stack hygiene — retarget is a HARD GATE, not a cleanup step:**
+**When a lower layer needs changes:** fix it, then `gh stack rebase` cascades
+the fix through every branch above it, and `gh stack push` updates all the
+open PRs at once. GitHub retargets and rebases the upper PRs automatically
+when a lower one merges, so there's no manual base-branch surgery and no risk
+of a PR silently merging into an already-merged, now-dead parent branch (the
+failure mode the old manual-stacking flow was prone to).
 
-1. **Merge bottom-up** (A before B), one at a time.
-2. **After A merges, BEFORE touching B, retarget + rebase B onto `main`:**
-   ```bash
-   gh pr edit <B> --base main                                   # retarget the PR first
-   git switch feat/slice-b
-   git rebase --onto main feat/slice-a feat/slice-b
-   git push --force-with-lease
-   ```
-3. **Verify B's base is actually `main` before merging it** — never merge on faith:
-   ```bash
-   gh pr view <B> --json baseRefName -q .baseRefName            # MUST print "main"
-   ```
-   If this does not print `main`, do **not** merge — retarget (step 2) first.
-4. If the base moves, restack the whole chain in order (A→B→C), repeating steps 2–3 per level.
+**Merging:** `gh stack merge` lands one or more layers bottom-up in a single
+all-or-nothing operation, respecting existing branch protections and required
+checks. Merge the whole stack at once, or pass a PR number to merge only up to
+that layer and leave the rest open.
 
-**Recovery — a child already merged into the dead parent branch (commits missing from `main`):**
-The commits still exist on the child's head branch. Recreate them onto `main` as a fresh PR:
-```bash
-git switch -c <slice>-to-main origin/main
-git cherry-pick <first>^..<last>          # the child's own commits (git log main..origin/feat/slice-b)
-git push -u origin <slice>-to-main
-gh pr create --base main --title "<slice> (re-target to main)" --body "Content of #<B>, re-targeted to main. Supersedes #<B>. Part of #N."
-```
-
-**Simpler alternative — avoid the trap entirely:** for a 2-PR stack, once A merges you can just retarget B to `main` and rebase (steps 2–3). For deeper stacks or when retargeting keeps going wrong, prefer **one PR with well-separated commits** over a stack — reviewers can read commit-by-commit, and there's no base to lose.
+For a 2-layer stack, a stack is still worth it since `gh stack` removes the
+rebase/retarget overhead that used to make manual stacking risky. For very
+small, tightly coupled changes, one PR with well-separated commits is still
+simpler than any stack.
 
 ### PR body linking convention
 - Intermediate PRs: **`Part of #N`** (keeps the issue open).
@@ -310,11 +304,11 @@ Update the issue continuously — it's the status dashboard.
 | Create issue | `gh issue create --title … --label enhancement --body …` |
 | Design PR | `git switch -c design/<t>` → PR `--base main` |
 | Impl PR (indep.) | `git switch -c feat/<s> main` → PR `--base main` |
-| Impl PR (stacked) | `git switch -c feat/b feat/a` → PR `--base feat/a` |
+| Impl PR (stacked) | `gh stack init feat/a` → `gh stack add feat/b` → `gh stack submit` |
+| Fix a lower layer | edit, commit, `gh stack rebase`, `gh stack push` |
+| Merge a stack | `gh stack merge` (bottom-up, all-or-nothing; retargets upper PRs automatically) |
 | Review diff (gate 3) | `/code-review` (or `/code-review ultra` — user-triggered) |
 | Watch CI (gate 4) | `gh pr checks --watch` |
-| Restack after A merges | `gh pr edit <B> --base main` + `git rebase --onto main feat/a feat/b` + `git push --force-with-lease` |
-| **Verify base before merging a child** | `gh pr view <B> --json baseRefName -q .baseRefName` → **must be `main`** |
 | Update issue box | `gh issue edit N --body …` |
 | Comment status | `gh issue comment N --body …` |
 | Link (intermediate) | `Part of #N` in PR body |
